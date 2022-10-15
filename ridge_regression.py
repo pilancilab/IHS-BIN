@@ -242,7 +242,7 @@ def ridge_regression(A,b,alpha,lbd_min,lbd_max, Atest, btest, solver = 'svd',pro
         if type(ATA) == scipy.sparse.linalg.interface._ProductLinearOperator:
             raise Exception('Error: native solver does not support for linear operator')
         if scipy.sparse.issparse(ATA):
-            vk = scipy.sparse.linalg.spsolve(ATA+lbd*np.eye(d),ATb)
+            vk = scipy.sparse.linalg.spsolve(ATA+lbd*scipy.sparse.eye(d),ATb)
         else:
             vk = np.linalg.solve(ATA+lbd*np.eye(d),ATb)
         toc = time.process_time()
@@ -254,7 +254,7 @@ def ridge_regression(A,b,alpha,lbd_min,lbd_max, Atest, btest, solver = 'svd',pro
             if type(ATA)==scipy.sparse.linalg.interface._ProductLinearOperator:
                 vk_sub, _ = scipy.sparse.linalg.cg(ATA+lbd*scipy.sparse.linalg.aslinearoperator(np.eye(d)),ATb[:,j])
             else:
-                vk_sub, _ = scipy.sparse.linalg.cg(ATA+lbd*np.eye(d),ATb[:,j])
+                vk_sub, _ = scipy.sparse.linalg.cg(ATA+lbd*scipy.sparse.eye(d),ATb[:,j])
             vk[:,j] = vk_sub 
         toc = time.process_time()
         time_list[0] = toc-tic
@@ -346,7 +346,7 @@ def ridge_regression(A,b,alpha,lbd_min,lbd_max, Atest, btest, solver = 'svd',pro
                 if type(ATA)==scipy.sparse.linalg.interface._ProductLinearOperator:
                     vk_sub, _ = scipy.sparse.linalg.cg(ATA+lbd*scipy.sparse.linalg.aslinearoperator(np.eye(d)),ATb[:,j], x0 = vk[:,j])
                 else:
-                    vk_sub, _ = scipy.sparse.linalg.cg(ATA+lbd*np.eye(d),ATb[:,j], x0 = vk[:,j])
+                    vk_sub, _ = scipy.sparse.linalg.cg(ATA+lbd*scipy.sparse.eye(d),ATb[:,j], x0 = vk[:,j])
                 vk[:,j] = vk_sub 
             # print(vk.shape)
             toc = time.process_time()
@@ -753,7 +753,7 @@ def ridge_regression_over(A,b,alpha,lbd_min,lbd_max, Atest, btest, solver = 'svd
                 if type(AAT)==scipy.sparse.linalg.interface._ProductLinearOperator:
                     zk_sub, _ = scipy.sparse.linalg.cg(AAT+lbd*scipy.sparse.linalg.aslinearoperator(np.eye(n)),b[:,j],x0 = zk[:,j])
                 else:
-                    zk_sub, _ = scipy.sparse.linalg.cg(AAT+lbd*np.eye(n),b[:,j],x0 = zk[:,j])
+                    zk_sub, _ = scipy.sparse.linalg.cg(AAT+lbd*scipy.sparse.eye(n),b[:,j],x0 = zk[:,j])
                 zk[:,j] =zk_sub 
             vk = A.T@zk
             toc = time.process_time()

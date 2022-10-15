@@ -15,9 +15,8 @@ from IHS_double import IHS_double, IHS_double_over
 def get_parser():
     parser = argparse.ArgumentParser(description='ridge regression')
     parser.add_argument("--data_name", type=str, default="random",
-                        help="data name", choices=["random", "rcv1", "gisette", "MNIST", 
-                        "kdd2010-raw", "kdd2010", "MNIST-kron", "tfidf", "realsim",
-                        "avazu-app", "MNIST-kernel", "CIFAR10-kernel"])
+                        help="data name", choices=["random", "rcv1", "gisette",
+                        "MNIST-kron", "tfidf", "realsim", "avazu-app", "CIFAR10-kernel"])
     parser.add_argument("--n", type=float, default=1e3, help="number of sample")
     parser.add_argument("--d", type=float, default=1e3, help="number of dimension")
     parser.add_argument("--m", type=float, default=1e3, help="sketch dimension")
@@ -153,27 +152,6 @@ def main():
         btrain = b[indn[:n]]
         btest = b[indn[-1-n:-1]]
         b = btrain
-    elif data_name == 'MNIST': #60000, 780
-        test_name = './results/MNIST-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
-        A,b = sklearn.datasets.load_svmlight_file('{}/MNIST/mnist'.format(args.data_dir))
-        p, q = A.shape
-        print(p,q)
-        indn = np.arange(p)
-        indd = np.arange(q)
-        if args.shuffle:
-            np.random.shuffle(indn)
-            np.random.shuffle(indd)
-        A = A/255 #rescale to [0,1]
-        b = one_hot(b.astype(np.int8),10) # one-hot encoding
-        Atrain = A[indn[:n],:][:,indd[:d]]
-        # A = A.todense().A
-        # A[:,-1] = 1 # add bias
-        Atest = A[indn[-1-n:-1],:][:,indd[:d]]
-        A = Atrain
-        btrain = b[indn[:n],:]
-        btest = b[indn[-1-n:-1],:]
-        b = btrain
-        # Atest = Atest.todense().A
     elif data_name == 'MNIST-kron': #60000, 780*780
         test_name = './results/MNIST-kron-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
         if n<=10000:
@@ -279,105 +257,6 @@ def main():
             print('residual is {:.2e}'.format(np.linalg.norm(test_resid)))
 
         print(b.shape)
-    elif data_name == 'MNIST-kernel': #60000, 30000
-        test_name = './results/MNIST-kernel-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
-        if n<=10000:
-            A, _ = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,0),'rb'))
-            indd = np.arange(30000)
-            if args.shuffle:
-                np.random.shuffle(indd)
-            A = A[:n,:][:,indd[:d]]
-            Atest, _ = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,3),'rb'))
-            Atest = Atest[:n,:][:,indd[:d]]
-            
-            _,b = sklearn.datasets.load_svmlight_file('{}/MNIST/mnist'.format(args.data_dir))
-            b = one_hot(b.astype(np.int8),10) # one-hot encoding
-            btest = b[30000:30000+n,:]
-            b = b[:n,:]
-            print(A.shape)
-
-        else:
-            num_split = (n-1)//10000+1
-            indd = np.arange(30000)
-            if args.shuffle:
-                np.random.shuffle(indd)
-            def mv(x):
-                if len(x.shape)==1:
-                    x = x.reshape([-1,1])
-                num_class = x.shape[1]
-                Ax = np.zeros([n,num_class])
-                for j in range(num_split):
-                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j),'rb'))
-                    if j<num_split-1:
-                        A_part = A_part[:,indd[:d]]
-                        # A_part = A_part.astype(np.float32)
-                        Ax[j*10000:(j+1)*10000,:] = A_part@x
-                    else:
-                        A_part = A_part[:,indd[:d]][:n-10000,:]
-                        # A_part = A_part.astype(np.float32)
-                        Ax[j*10000:,:] = A_part@x
-                return Ax
-
-            def rmv(x):
-                if len(x.shape)==1:
-                    x = x.reshape([-1,1])
-                num_class = x.shape[1]
-                ATx = np.zeros([d,num_class])
-                for j in range(num_split):
-                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j),'rb'))
-                    if j<num_split-1:
-                        A_part = A_part[:,indd[:d]]
-                        # A_part = A_part.astype(np.float32)
-                        ATx = ATx+A_part.T@x[j*10000:(j+1)*10000,:]
-                    else:
-                        A_part = A_part[:,indd[:d]][:n-10000,:]
-                        # A_part = A_part.astype(np.float32)
-                        ATx = ATx+A_part.T@x[j*10000:,:]
-                return ATx
-
-            def mv_sparse(x):
-                if len(x.shape)==1:
-                    x = x.reshape([-1,1])
-                num_class = x.shape[1]
-                Ax = np.zeros([n,num_class])
-                for j in range(num_split):
-                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j),'rb'))
-                    if j<num_split-1:
-                        A_part = A_part[:,indd[:d]]
-                        # A_part = A_part.astype(np.float32)
-                        Ax[j*10000:(j+1)*10000,:] = (A_part@x).todense()
-                    else:
-                        A_part = A_part[:,indd[:d]][:n-10000,:]
-                        # A_part = A_part.astype(np.float32)
-                        Ax[j*10000:,:] = (A_part@x).todense()
-                return Ax
-
-
-            def mv_test(x):
-                if len(x.shape)==1:
-                    x = x.reshape([-1,1])
-                num_class = x.shape[1]
-                Ax = np.zeros([n,num_class])
-                for j in range(num_split):
-                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j+3),'rb'))
-                    if j<num_split-1:
-                        A_part = A_part[:,indd[:d]]
-                        # A_part = A_part.astype(np.float32)
-                        Ax[j*10000:(j+1)*10000,:] = A_part@x
-                    else:
-                        A_part = A_part[:,indd[:d]][:n-10000,:]
-                        # A_part = A_part.astype(np.float32)
-                        Ax[j*10000:,:] = A_part@x
-                return Ax
-
-            A = scipy.sparse.linalg.LinearOperator((n,d), matvec=mv,matmat=mv,rmatvec = rmv, rmatmat = rmv)
-            Atest = scipy.sparse.linalg.LinearOperator((n,d), matvec=mv_test, matmat=mv_test)
-            _,b = sklearn.datasets.load_svmlight_file('{}/MNIST/mnist'.format(args.data_dir))
-            b = one_hot(b.astype(np.int8),10) # one-hot encoding
-            btest = b[30000:30000+n,:]
-            b = b[:n,:]
-
-        print(b.shape)
     elif data_name == 'CIFAR10-kernel': #50000, 25000
         test_name = './results/CIFAR10-kernel-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
         if n<=10000:
@@ -478,45 +357,6 @@ def main():
             b = b[:n,:]
 
         print(b.shape)
-
-    elif data_name == 'kdd2010-raw': #19264097, 1129522
-        test_name = './results/kdd2010-raw-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
-        A,b = sklearn.datasets.load_svmlight_file('{}/kdd2010-raw/kddb-raw-libsvm'.format(args.data_dir))
-        p, q = A.shape
-        print(p,q)
-        indn = np.arange(p)
-        indd = np.arange(q)
-        if args.shuffle:
-            np.random.shuffle(indn)
-            np.random.shuffle(indd)
-        Atrain = A[indn[:n],:][:,indd[:d]]
-        # A = A.todense().A
-        # A[:,-1] = 1 # add bias
-        Atest = A[indn[-1-n:-1],:][:,indd[:d]]
-        A = Atrain
-        btrain = b[indn[:n]]
-        btest = b[indn[-1-n:-1]]
-        b = btrain
-    elif data_name == 'kdd2010': #19264097, 29890095
-        test_name = './results/kdd2010-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
-        A,b = sklearn.datasets.load_svmlight_file('{}/kdd2010/kddb'.format(args.data_dir))
-        A = A.astype(np.float32)
-        b = b.astype(np.float32)
-        p, q = A.shape
-        print(p,q)
-        indn = np.arange(p)
-        indd = np.arange(q)
-        if args.shuffle:
-            np.random.shuffle(indn)
-            np.random.shuffle(indd)
-        Atrain = A[indn[:n],:][:,indd[:d]]
-        # A = A.todense().A
-        # A[:,-1] = 1 # add bias
-        Atest = A[indn[-1-n:-1],:][:,indd[:d]]
-        A = Atrain
-        btrain = b[indn[:n]]
-        btest = b[indn[-1-n:-1]]
-        b = btrain
     elif data_name == 'avazu-app': #19264097, 29890095
         test_name = './results/avazu-app-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
         A,b = sklearn.datasets.load_svmlight_file('{}/avazu/avazu-app'.format(args.data_dir))

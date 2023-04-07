@@ -2,6 +2,8 @@
 
 This is the repository of codes in the paper __Sketching the Krylov Subspace: Faster Computation of the Entire Ridge Regularization Path__. 
 
+## Requirements
+We require the installation of [RidgeSketch](https://github.com/facebookresearch/RidgeSketch) for numerical comparison. Please follow the instructions in [RidgeSketch](https://github.com/facebookresearch/RidgeSketch) to install it.
 
 
 ## Dataset
@@ -78,6 +80,18 @@ python cmp_ridge_regression.py --data_name tfidf --n 8e3 --d 150360 --m 2000 --l
 
 ```
 python cmp_ridge_regression.py --data_name MNIST-kron --n 3e4 --d 608400 --m 1e4 --lbd_min 1e-1 --lbd_max 1e1 --lbd_list_len 20 --cg_over --IHS_BIN_over --sparsity 1 --data_dir DIRECTORY_TO_DATASETS
+```
+
+- synthetic data with decay spectral
+
+```
+python cmp_ridge_regression.py --data_name random-cluster --n 2e3 --d 4e2 --m 160 --noise_level 1e-1 --lbd_min 1e0 --lbd_max 1e2 --lbd_list_len 100 --IHS_BIN --ridge_sketch --repeat 5 --ihs_iter_max 7 --svd --cg --native --eigATA
+```
+
+- synthetic data with clustered spectral
+
+```
+python cmp_ridge_regression.py --data_name random --n 2e3 --d 4e2 --m 160 --noise_level 4e-1 --lbd_min 1e1 --lbd_max 1e3 --lbd_list_len 100 --IHS_BIN --ridge_sketch --repeat 5 --ihs_iter_max 6 --svd --cg --native --eigATA
 ```
 
 

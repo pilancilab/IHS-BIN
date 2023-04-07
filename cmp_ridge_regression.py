@@ -11,12 +11,14 @@ from utils import one_hot
 import argparse
 import pickle
 from IHS_double import IHS_double, IHS_double_over
+from ridge_sketch import RidgeSketch
 
 def get_parser():
     parser = argparse.ArgumentParser(description='ridge regression')
     parser.add_argument("--data_name", type=str, default="random",
-                        help="data name", choices=["random", "rcv1", "gisette",
-                        "MNIST-kron", "tfidf", "realsim", "avazu-app", "CIFAR10-kernel"])
+                        help="data name", choices=["random", "random-cluster", "rcv1", "gisette", "MNIST", 
+                        "kdd2010-raw", "kdd2010", "MNIST-kron", "tfidf", "realsim",
+                        "avazu-app", "MNIST-kernel", "CIFAR10-kernel"])
     parser.add_argument("--n", type=float, default=1e3, help="number of sample")
     parser.add_argument("--d", type=float, default=1e3, help="number of dimension")
     parser.add_argument("--m", type=float, default=1e3, help="sketch dimension")
@@ -34,6 +36,7 @@ def get_parser():
     parser.add_argument("--native", action='store_true', help="whether to test native")
     parser.add_argument("--cg", action='store_true', help="whether to test cg")
     parser.add_argument("--IHS_BIN", action='store_true', help="whether to test IHS-BIN")
+    parser.add_argument("--ridge_sketch", action='store_true', help="whether to test RidgeSketch")
     parser.add_argument("--svd_over", action='store_true', help="whether to test svd")
     parser.add_argument("--native_over", action='store_true', help="whether to test native")
     parser.add_argument("--cg_over", action='store_true', help="whether to test cg")
@@ -47,7 +50,7 @@ def get_parser():
     parser.add_argument("--shuffle", action='store_true', help="whether to shuffle the index")
     parser.add_argument("--id", type=str, default="")
     parser.add_argument("--sparsity", type=int, default=1)
-
+    parser.add_argument("--repeat", type=int, default=1)
     return parser
 
 def main():
@@ -79,6 +82,25 @@ def main():
         test_name = './results/random-alpha{}-n{}-d{}/noise{}-min{}-max{}'.format(alpha,n,d,noise_level,lbd_min,lbd_max)
         cor_mat = np.abs(aux.reshape([-1,1])-aux.reshape([1,-1]))
         cor_mat = np.power(alpha,cor_mat)
+        A_full = np.random.randn(2*n,d)@cor_mat/np.sqrt(d)/np.sqrt(n)*10
+        ind = np.arange(2*n)
+        if args.shuffle:
+            np.random.shuffle(ind)
+        A = A_full[ind[:n],:]
+        Atest = A_full[ind[n:],:]
+
+        x_star = np.random.randn(d,1)/np.sqrt(d)
+        # x_star = A.T@(A@x_star) # make the problem well-conditioned
+        x_star = x_star/np.linalg.norm(x_star)
+        b = A@x_star+noise_level*np.random.randn(n,1)
+        btest = Atest@x_star+noise_level*np.random.randn(n,1)
+    elif data_name == 'random-cluster':
+        aux = np.zeros(d)+1
+        aux[:d//2] = 0.01
+        alpha = 2
+        aux = aux*alpha**np.random.uniform(-1,1,d)
+        test_name = './results/random-cluster-alpha{}-n{}-d{}/noise{}-min{}-max{}'.format(alpha,n,d,noise_level,lbd_min,lbd_max)
+        cor_mat = np.diag(aux)
         A_full = np.random.randn(2*n,d)@cor_mat/np.sqrt(d)/np.sqrt(n)*10
         ind = np.arange(2*n)
         if args.shuffle:
@@ -152,6 +174,27 @@ def main():
         btrain = b[indn[:n]]
         btest = b[indn[-1-n:-1]]
         b = btrain
+    elif data_name == 'MNIST': #60000, 780
+        test_name = './results/MNIST-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
+        A,b = sklearn.datasets.load_svmlight_file('{}/MNIST/mnist'.format(args.data_dir))
+        p, q = A.shape
+        print(p,q)
+        indn = np.arange(p)
+        indd = np.arange(q)
+        if args.shuffle:
+            np.random.shuffle(indn)
+            np.random.shuffle(indd)
+        A = A/255 #rescale to [0,1]
+        b = one_hot(b.astype(np.int8),10) # one-hot encoding
+        Atrain = A[indn[:n],:][:,indd[:d]]
+        # A = A.todense().A
+        # A[:,-1] = 1 # add bias
+        Atest = A[indn[-1-n:-1],:][:,indd[:d]]
+        A = Atrain
+        btrain = b[indn[:n],:]
+        btest = b[indn[-1-n:-1],:]
+        b = btrain
+        # Atest = Atest.todense().A
     elif data_name == 'MNIST-kron': #60000, 780*780
         test_name = './results/MNIST-kron-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
         if n<=10000:
@@ -257,6 +300,105 @@ def main():
             print('residual is {:.2e}'.format(np.linalg.norm(test_resid)))
 
         print(b.shape)
+    elif data_name == 'MNIST-kernel': #60000, 30000
+        test_name = './results/MNIST-kernel-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
+        if n<=10000:
+            A, _ = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,0),'rb'))
+            indd = np.arange(30000)
+            if args.shuffle:
+                np.random.shuffle(indd)
+            A = A[:n,:][:,indd[:d]]
+            Atest, _ = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,3),'rb'))
+            Atest = Atest[:n,:][:,indd[:d]]
+            
+            _,b = sklearn.datasets.load_svmlight_file('{}/MNIST/mnist'.format(args.data_dir))
+            b = one_hot(b.astype(np.int8),10) # one-hot encoding
+            btest = b[30000:30000+n,:]
+            b = b[:n,:]
+            print(A.shape)
+
+        else:
+            num_split = (n-1)//10000+1
+            indd = np.arange(30000)
+            if args.shuffle:
+                np.random.shuffle(indd)
+            def mv(x):
+                if len(x.shape)==1:
+                    x = x.reshape([-1,1])
+                num_class = x.shape[1]
+                Ax = np.zeros([n,num_class])
+                for j in range(num_split):
+                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j),'rb'))
+                    if j<num_split-1:
+                        A_part = A_part[:,indd[:d]]
+                        # A_part = A_part.astype(np.float32)
+                        Ax[j*10000:(j+1)*10000,:] = A_part@x
+                    else:
+                        A_part = A_part[:,indd[:d]][:n-10000,:]
+                        # A_part = A_part.astype(np.float32)
+                        Ax[j*10000:,:] = A_part@x
+                return Ax
+
+            def rmv(x):
+                if len(x.shape)==1:
+                    x = x.reshape([-1,1])
+                num_class = x.shape[1]
+                ATx = np.zeros([d,num_class])
+                for j in range(num_split):
+                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j),'rb'))
+                    if j<num_split-1:
+                        A_part = A_part[:,indd[:d]]
+                        # A_part = A_part.astype(np.float32)
+                        ATx = ATx+A_part.T@x[j*10000:(j+1)*10000,:]
+                    else:
+                        A_part = A_part[:,indd[:d]][:n-10000,:]
+                        # A_part = A_part.astype(np.float32)
+                        ATx = ATx+A_part.T@x[j*10000:,:]
+                return ATx
+
+            def mv_sparse(x):
+                if len(x.shape)==1:
+                    x = x.reshape([-1,1])
+                num_class = x.shape[1]
+                Ax = np.zeros([n,num_class])
+                for j in range(num_split):
+                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j),'rb'))
+                    if j<num_split-1:
+                        A_part = A_part[:,indd[:d]]
+                        # A_part = A_part.astype(np.float32)
+                        Ax[j*10000:(j+1)*10000,:] = (A_part@x).todense()
+                    else:
+                        A_part = A_part[:,indd[:d]][:n-10000,:]
+                        # A_part = A_part.astype(np.float32)
+                        Ax[j*10000:,:] = (A_part@x).todense()
+                return Ax
+
+
+            def mv_test(x):
+                if len(x.shape)==1:
+                    x = x.reshape([-1,1])
+                num_class = x.shape[1]
+                Ax = np.zeros([n,num_class])
+                for j in range(num_split):
+                    A_part, b_part = pickle.load(open('{}/MNIST/mnist_kernel_{}.p'.format(args.data_dir,j+3),'rb'))
+                    if j<num_split-1:
+                        A_part = A_part[:,indd[:d]]
+                        # A_part = A_part.astype(np.float32)
+                        Ax[j*10000:(j+1)*10000,:] = A_part@x
+                    else:
+                        A_part = A_part[:,indd[:d]][:n-10000,:]
+                        # A_part = A_part.astype(np.float32)
+                        Ax[j*10000:,:] = A_part@x
+                return Ax
+
+            A = scipy.sparse.linalg.LinearOperator((n,d), matvec=mv,matmat=mv,rmatvec = rmv, rmatmat = rmv)
+            Atest = scipy.sparse.linalg.LinearOperator((n,d), matvec=mv_test, matmat=mv_test)
+            _,b = sklearn.datasets.load_svmlight_file('{}/MNIST/mnist'.format(args.data_dir))
+            b = one_hot(b.astype(np.int8),10) # one-hot encoding
+            btest = b[30000:30000+n,:]
+            b = b[:n,:]
+
+        print(b.shape)
     elif data_name == 'CIFAR10-kernel': #50000, 25000
         test_name = './results/CIFAR10-kernel-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
         if n<=10000:
@@ -357,6 +499,45 @@ def main():
             b = b[:n,:]
 
         print(b.shape)
+
+    elif data_name == 'kdd2010-raw': #19264097, 1129522
+        test_name = './results/kdd2010-raw-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
+        A,b = sklearn.datasets.load_svmlight_file('{}/kdd2010-raw/kddb-raw-libsvm'.format(args.data_dir))
+        p, q = A.shape
+        print(p,q)
+        indn = np.arange(p)
+        indd = np.arange(q)
+        if args.shuffle:
+            np.random.shuffle(indn)
+            np.random.shuffle(indd)
+        Atrain = A[indn[:n],:][:,indd[:d]]
+        # A = A.todense().A
+        # A[:,-1] = 1 # add bias
+        Atest = A[indn[-1-n:-1],:][:,indd[:d]]
+        A = Atrain
+        btrain = b[indn[:n]]
+        btest = b[indn[-1-n:-1]]
+        b = btrain
+    elif data_name == 'kdd2010': #19264097, 29890095
+        test_name = './results/kdd2010-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
+        A,b = sklearn.datasets.load_svmlight_file('{}/kdd2010/kddb'.format(args.data_dir))
+        A = A.astype(np.float32)
+        b = b.astype(np.float32)
+        p, q = A.shape
+        print(p,q)
+        indn = np.arange(p)
+        indd = np.arange(q)
+        if args.shuffle:
+            np.random.shuffle(indn)
+            np.random.shuffle(indd)
+        Atrain = A[indn[:n],:][:,indd[:d]]
+        # A = A.todense().A
+        # A[:,-1] = 1 # add bias
+        Atest = A[indn[-1-n:-1],:][:,indd[:d]]
+        A = Atrain
+        btrain = b[indn[:n]]
+        btest = b[indn[-1-n:-1]]
+        b = btrain
     elif data_name == 'avazu-app': #19264097, 29890095
         test_name = './results/avazu-app-n-{}-d{}/min{}-max{}'.format(n,d,lbd_min,lbd_max)
         A,b = sklearn.datasets.load_svmlight_file('{}/avazu/avazu-app'.format(args.data_dir))
@@ -507,10 +688,18 @@ def main():
             time_sketch = toc-tic
         else:
             time_sketch = 0
-        vk, time_ihs_bin, info_ihs_bin = ridge_regression(A,b,alpha,lbd_min,lbd_max,Atest,btest, 
-            prob_type='multi_lbd', lbd_list=lbd_list, solver='ihs_bin',ihs_opt=ihs_opt, debug=True)
-        time_ihs_bin = time_ihs_bin+time_sketch
-        output_dict['IHS-BIN'] = [time_ihs_bin, info_ihs_bin]
+        if args.repeat == 1:
+            vk, time_ihs_bin, info_ihs_bin = ridge_regression(A,b,alpha,lbd_min,lbd_max,Atest,btest, 
+                prob_type='multi_lbd', lbd_list=lbd_list, solver='ihs_bin',ihs_opt=ihs_opt, debug=True)
+            time_ihs_bin = time_ihs_bin+time_sketch
+            output_dict['IHS-BIN'] = [time_ihs_bin, info_ihs_bin]
+        else:
+            output_dict['IHS-BIN'] = []
+            for j in range(args.repeat):
+                vk, time_ihs_bin, info_ihs_bin = ridge_regression(A,b,alpha,lbd_min,lbd_max,Atest,btest, 
+                    prob_type='multi_lbd', lbd_list=lbd_list, solver='ihs_bin',ihs_opt=ihs_opt, debug=True)
+                time_ihs_bin = time_ihs_bin+time_sketch
+                output_dict['IHS-BIN'].append([time_ihs_bin, info_ihs_bin])
 
     if args.IHS_BIN_over:
         print('n = {} d = {} m = {} IHS-BIN-over'.format(n,d,m))
@@ -529,10 +718,71 @@ def main():
             time_sketch = toc-tic
         else:
             time_sketch = 0
-        vk, time_ihs_bin, info_ihs_bin = ridge_regression_over(A,b,alpha,lbd_min,lbd_max,Atest,btest, 
-            prob_type='multi_lbd', lbd_list=lbd_list, solver='ihs_bin',ihs_opt=ihs_opt, debug=True)
-        time_ihs_bin = time_ihs_bin+time_sketch
-        output_dict['IHS-BIN-over'] = [time_ihs_bin, info_ihs_bin]
+        if args.repeat==1:
+            vk, time_ihs_bin, info_ihs_bin = ridge_regression_over(A,b,alpha,lbd_min,lbd_max,Atest,btest, 
+                prob_type='multi_lbd', lbd_list=lbd_list, solver='ihs_bin',ihs_opt=ihs_opt, debug=True)
+            time_ihs_bin = time_ihs_bin+time_sketch
+            output_dict['IHS-BIN-over'] = [time_ihs_bin, info_ihs_bin]
+        else:
+            output_dict['IHS-BIN-over'] = []
+            for j in range(args.repeat):
+                vk, time_ihs_bin, info_ihs_bin = ridge_regression_over(A,b,alpha,lbd_min,lbd_max,Atest,btest, 
+                    prob_type='multi_lbd', lbd_list=lbd_list, solver='ihs_bin',ihs_opt=ihs_opt, debug=True)
+                time_ihs_bin = time_ihs_bin+time_sketch
+                output_dict['IHS-BIN-over'].append([time_ihs_bin, info_ihs_bin])
+
+    if args.ridge_sketch:
+        tic = time.process_time()
+        print('n = {} d = {} m = {} Ridge Sketch'.format(n,d,m))
+        if args.repeat==1:
+            len_list = len(lbd_list)
+            time_list = np.zeros(len_list)
+            train_loss = np.zeros(len_list)
+            test_loss = np.zeros(len_list)
+            for i, lbd in enumerate(lbd_list):
+                model = RidgeSketch(
+                    alpha=lbd,
+                    solver="subsample",
+                    sketch_size=m,
+                    verbose=0,
+                )
+                b = b.reshape([-1,1])
+                model.fit(A, b)
+                x = model.coef_ 
+                train_loss[i] = 0.5*np.linalg.norm(A@x-b)**2+0.5*lbd*np.linalg.norm(x)**2
+                test_loss[i] = 0.5*np.linalg.norm(Atest@x-btest)**2
+                toc = time.process_time()
+                time_list[i] = toc-tic
+            info_ridge={}
+            info_ridge['train_loss'] = train_loss
+            info_ridge['test_loss'] = test_loss
+            output_dict['ridge-sketch'] = [time_list, info_ridge]
+        else:
+            output_dict['ridge-sketch'] = []
+            for j in range(args.repeat):
+                len_list = len(lbd_list)
+                time_list = np.zeros(len_list)
+                train_loss = np.zeros(len_list)
+                test_loss = np.zeros(len_list)
+                for i, lbd in enumerate(lbd_list):
+                    model = RidgeSketch(
+                        alpha=lbd,
+                        solver="subsample",
+                        sketch_size=m,
+                        verbose=0,
+                    )
+                    b = b.reshape([-1,1])
+                    model.fit(A, b)
+                    x = model.coef_ 
+                    train_loss[i] = 0.5*np.linalg.norm(A@x-b)**2+0.5*lbd*np.linalg.norm(x)**2
+                    test_loss[i] = 0.5*np.linalg.norm(Atest@x-btest)**2
+                    toc = time.process_time()
+                    time_list[i] = toc-tic
+                info_ridge={}
+                info_ridge['train_loss'] = train_loss
+                info_ridge['test_loss'] = test_loss
+                output_dict['ridge-sketch'].append([time_list, info_ridge])
+
 
 
     results = [state_dict, eigATA_sort, eigAAT_sort, lbd_list, output_dict]
